@@ -23,7 +23,7 @@ function blast(connections, durationSeconds) {
             duration: durationSeconds,
             requests: [
                 { method: 'GET', path: '/' },         
-                { method: 'GET', path: '/delay' },    
+                // { method: 'GET', path: '/delay' },    
                 { method: 'GET', path: '/heavy' }     
             ]
         });

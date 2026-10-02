@@ -10,11 +10,13 @@
   "keywords": [],
   "type": "module",
   "dependencies": {
+    "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "autocannon": "^8.0.0",
     "axios": "^1.20.0",
     "dockerode": "^5.0.1",
     "dotenv": "^18.0.5",
+    "pg": "^8.23.1",
     "prisma": "^7.10.0"
   },
   "devDependencies": {

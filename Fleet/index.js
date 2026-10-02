@@ -1,7 +1,16 @@
+import 'dotenv/config'
 import Docker from 'dockerode'
 import axios from 'axios'
+import pg from 'pg'
+import { PrismaPg } from '@prisma/adapter-pg'
+import { PrismaClient } from '@prisma/client'
 
+
+const { Pool } = pg
+const pool = new Pool({ connectionString: process.env.DATABASE_URL })
 const docker = new Docker()
+const adapter = new PrismaPg(pool)
+const prisma = new PrismaClient({ adapter })
 
 const instance = axios.create({
     baseURL: 'http://localhost:2019/id/cluster/upstreams'
@@ -14,7 +23,7 @@ console.log(result.data);
 let nextPort = 3000
 let activePorts = []
 
-async function spawnWorker(hostPort){
+async function spawnWorker(hostPort, currentCpu){
 
     try {
         const container = await docker.createContainer({
@@ -33,7 +42,7 @@ async function spawnWorker(hostPort){
             },
             Memory: 128 * 1024 * 1024,
             MemorySwap: 128 * 1024 * 1024,
-            NanoCPUs: 1000000000
+            NanoCPUs: 500000000
         }
     })
 
@@ -41,6 +50,14 @@ async function spawnWorker(hostPort){
     await instance.post('/',{"dial":`localhost:${hostPort}`})
     activePorts.push({id: container.id, port: hostPort})
     console.log(`Spawed new container at ${hostPort}`)
+    prisma.scalingEvent.create({
+        data: {
+            action: 'SCALE_UP',
+            port: hostPort,
+            containerId: container.id,
+            triggerCpu: currentCpu
+        }
+    }).catch(err => console.error("Prisma Scale Up Error:", err));
     nextPort++;
     } catch (error) {
         console.error(`error is : ${error}`)
@@ -61,7 +78,7 @@ if(containers.length != 0){
 }
 
 
-await spawnWorker(nextPort)
+await spawnWorker(nextPort,0)
 
 console.log(activePorts)
 let avgclusterCpuUsage = 0;
@@ -72,10 +89,6 @@ setInterval(async() => {
     let activeCount = activePorts.length
 
     if(activeCount === 0) return;
-    if(activeCount >= 20) {
-        console.log("Cant add new workers as active workers count has already reached 30");
-        return;
-    }
     await Promise.all(activePorts.map(async (worker)=> {
         try {
             const stats = await docker.getContainer(worker.id).stats({stream:false})
@@ -85,7 +98,7 @@ setInterval(async() => {
             
             let cpuPercentage = 0.0;
             if(systemDelta > 0 && systemDelta !== null){
-                cpuPercentage = (cpuDelta / systemDelta) * cores*100;
+                cpuPercentage = (cpuDelta / systemDelta) * cores*100*2;
             }
             console.log(`Worker on port ${worker.port} CPU: ${cpuPercentage.toFixed(2)}%`);
             clusterCpuUsage += cpuPercentage
@@ -97,19 +110,25 @@ setInterval(async() => {
     }))
     avgclusterCpuUsage = clusterCpuUsage/activeCount;
     console.log(`avgclusterCpuUsage : ${avgclusterCpuUsage}%`);
-    console.log(activePorts);
+
+    prisma.clusterMetric.create({
+        data: {
+            activeWorkers: activeCount,
+            averageCpu: avgclusterCpuUsage
+        }
+    }).catch(err => console.error("Prisma Metric Error:", err));
 
 
     const now = Date.now()
     if(now - lastScaleTime < COOLDOWN_PERIOD){
-        console.log(`Cooldown active. Waiting for cluster to stabilize...`);
+        console.log(`Cooldown active. Waiting for cluster to stabilize`);
         return;
     }
 
-    if(avgclusterCpuUsage > 60){
+    if(avgclusterCpuUsage > 60 && activeCount < 20){
         console.log("Cpu usage high spinning up new container")
         lastScaleTime = Date.now()
-        spawnWorker(nextPort).catch(err => console.error(err))
+        spawnWorker(nextPort, activeCount).catch(err => console.error(err))
     }
 
     if(avgclusterCpuUsage < 20 && activeCount > 1){
@@ -117,7 +136,7 @@ setInterval(async() => {
         await killworker(activePorts);
     }
     
-},5000)
+},10000)
 
 const killworker = async(activePorts) => {
     if(activePorts.length <= 1){
@@ -125,17 +144,27 @@ const killworker = async(activePorts) => {
         return;
     }
 
+    console.log("Scalling down due to low avgCpuUsage")
     const workerTokill = activePorts.pop();
     nextPort--;
     const targetIndex = activePorts.length
     try {
         await instance.delete(`/${targetIndex}`)
-        console.log(`The ${workerTokill} was removed from dials`);
+        console.log(`The ${workerTokill.id} was removed from dials`);
         
         const container = docker.getContainer(workerTokill.id)
         await container.stop()
         await container.remove()
-        console.log(`The ${workerTokill} was successfully killed`);
+        console.log(`The ${workerTokill.id} was successfully killed`);
+        let currentCpu = activePorts.length
+        prisma.scalingEvent.create({
+            data: {
+                action: 'SCALE_DOWN',
+                port: workerTokill.port,
+                containerId: workerTokill.id,
+                triggerCpu: currentCpu
+            }
+        }).catch(err => console.error("Prisma Scale Down Error:", err));
     } catch (error) {
         activePorts.push(workerTokill)
         nextPort++;
