@@ -18,12 +18,12 @@ async function runTrafficSimulation() {
 function blast(connections, durationSeconds) {
     return new Promise((resolve) => {
         const instance = autocannon({
-            url: 'http://localhost:8000',
+            url: 'http://127.0.0.1:8000',
             connections: connections,
             duration: durationSeconds,
             requests: [
                 { method: 'GET', path: '/' },         
-                // { method: 'GET', path: '/delay' },    
+                { method: 'GET', path: '/delay' },    
                 { method: 'GET', path: '/heavy' }     
             ]
         });
@@ -35,4 +35,4 @@ function blast(connections, durationSeconds) {
 }
 
 runTrafficSimulation();
-setInterval(() => runTrafficSimulation(), 65000)
+setInterval(() => runTrafficSimulation(), 60000)
