@@ -1,0 +1,22 @@
+{
+  "apps": {
+    "http": {
+      "servers": {
+        "srv0": {
+          "listen": [":8000"],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "reverse_proxy",
+                  "@id": "cluster",
+                  "upstreams": []
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

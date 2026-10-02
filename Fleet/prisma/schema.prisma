@@ -1,0 +1,28 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ScalingAction {
+  SCALE_UP
+  SCALE_DOWN
+}
+
+model ClusterMetric {
+  id             String   @id @default(uuid())
+  timestamp      DateTime @default(now())
+  activeWorkers  Int
+  averageCpu     Float
+}
+
+model ScalingEvent {
+  id             String        @id @default(uuid())
+  timestamp      DateTime      @default(now())
+  action         ScalingAction
+  port           Int
+  containerId    String
+  triggerCpu     Float
+}
